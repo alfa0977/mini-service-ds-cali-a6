@@ -1,0 +1,12 @@
+{
+  "name": "ds-cali-ai-vlm-service",
+  "version": "1.0.0",
+  "description": "Remote AI VLM service for DS-Cali — wraps z-ai-web-dev-sdk for APK meal analysis",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "z-ai-web-dev-sdk": "^0.0.18"
+  }
+}
