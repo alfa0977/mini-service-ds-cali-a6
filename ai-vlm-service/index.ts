@@ -1,14 +1,16 @@
-import express from 'express';
-import ZAI from 'z-ai-web-dev-sdk';
-const PORT = 3031;
-const PROMPT = `You are Cal-AI, a nutritionist vision AI. Analyze the meal in this image and estimate each ingredient with its weight in grams.
+import ZAI from "z-ai-web-dev-sdk";
+
+// PORT is no longer used by Vercel – kept only for reference
+// const PORT = 3031;
+
+const PROMPT = `You are DS-CALI, a nutritionist vision AI. Analyze the meal in this image and estimate each ingredient with its weight in grams.
 
 Rules:
 - Identify distinct ingredients (not the whole dish as one item).
 - Estimate weight in grams for each ingredient based on visual portion.
 - If the image is not a meal/food, return an empty ingredients array with healthScore 0.
 - Confidence is 0-1 (how sure you are about identification + weight).
-- healthScore is 0-100 based on nutritional balance.
+- healthScore is 0-100 based on nutritional balance (vegetables, whole foods, lean protein score higher; fried/sugary/processed score lower).
 - Respond with ONLY a JSON object, no markdown, no prose.
 
 JSON schema:
@@ -21,7 +23,7 @@ JSON schema:
   "detectedCategory": "Breakfast|Lunch|Dinner|Snack|Beverage"
 }`;
 
-let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
+let zaiInstance = null;
 
 async function getZai() {
   if (!zaiInstance) {
@@ -30,7 +32,7 @@ async function getZai() {
   return zaiInstance;
 }
 
-function parseAnalysisResponse(raw: string) {
+function parseAnalysisResponse(raw) {
   let text = raw.trim();
   text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   const start = text.indexOf("{");
@@ -41,7 +43,7 @@ function parseAnalysisResponse(raw: string) {
   const parsed = JSON.parse(text);
 
   // Calculate macros from ingredients
-  const CATEGORY_MACROS: Record<string, { calories: number; protein: number; carbs: number; fat: number }> = {
+  const CATEGORY_MACROS = {
     chicken: { calories: 165, protein: 31, carbs: 0, fat: 3.6 },
     beef: { calories: 250, protein: 26, carbs: 0, fat: 17 },
     fish: { calories: 206, protein: 22, carbs: 0, fat: 12 },
@@ -64,10 +66,10 @@ function parseAnalysisResponse(raw: string) {
     default: { calories: 200, protein: 8, carbs: 25, fat: 8 },
   };
 
-  function matchCategory(name: string): keyof typeof CATEGORY_MACROS {
+  function matchCategory(name) {
     const n = name.toLowerCase().replace(/\s+/g, "");
     for (const key of Object.keys(CATEGORY_MACROS)) {
-      if (n.includes(key)) return key as keyof typeof CATEGORY_MACROS;
+      if (n.includes(key)) return key;
     }
     return "default";
   }
@@ -84,7 +86,7 @@ function parseAnalysisResponse(raw: string) {
   }
 
   return {
-    ingredients: (parsed.ingredients ?? []).map((ing: { name?: string; estimatedWeightGrams?: number; confidence?: number }) => ({
+    ingredients: (parsed.ingredients ?? []).map((ing) => ({
       name: String(ing.name ?? "Unknown"),
       estimatedWeightGrams: Number(ing.estimatedWeightGrams) || 0,
       confidence: Math.min(1, Math.max(0, Number(ing.confidence) || 0.5)),
@@ -101,41 +103,68 @@ function parseAnalysisResponse(raw: string) {
   };
 }
 
-const app = express();
-app.use(express.json({ limit: '10mb' }));
+// ─── Vercel serverless handler ───────────────────────────────────────
+export default async function handler(req, res) {
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Content-Type": "application/json",
+  };
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Content-Type": "application/json",
-};
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, headers);
+    res.end();
+    return;
+  }
 
-// Handle preflight (OPTIONS) globally
-app.options('*', (req, res) => {
-  res.set(corsHeaders);
-  res.status(204).send();
-});
+  if (req.method !== "POST") {
+    res.writeHead(405, headers);
+    res.end(JSON.stringify({ error: "Method not allowed" }));
+    return;
+  }
 
-app.post('/', async (req, res) => {
-  // Set CORS headers for the actual response
-  res.set(corsHeaders);
+  // Read request body
+  let body = "";
+  try {
+    await new Promise((resolve, reject) => {
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", resolve);
+      req.on("error", reject);
+    });
+  } catch (err) {
+    res.writeHead(400, headers);
+    res.end(JSON.stringify({ error: "Failed to read request body" }));
+    return;
+  }
+
+  let parsedBody;
+  try {
+    parsedBody = JSON.parse(body);
+  } catch {
+    res.writeHead(400, headers);
+    res.end(JSON.stringify({ error: "Invalid JSON" }));
+    return;
+  }
+
+  const image = parsedBody.image;
+  if (!image) {
+    res.writeHead(400, headers);
+    res.end(JSON.stringify({ error: "Missing 'image' field" }));
+    return;
+  }
+
+  console.log(`[ai-vlm] Analyzing image (${typeof image === "string" ? image.length : "?"} chars)...`);
 
   try {
-    const { image } = req.body;
-    if (!image) {
-      return res.status(400).json({ error: "Missing 'image' field" });
-    }
-
-    console.log(`[ai-vlm] Analyzing image (${typeof image === "string" ? image.length : "?"} chars)...`);
-
     const zai = await getZai();
     const response = await zai.chat.completions.createVision({
       messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: PROMPT }, // ensure PROMPT is defined elsewhere
+            { type: "text", text: PROMPT },
             { type: "image_url", image_url: { url: image } },
           ],
         },
@@ -146,26 +175,14 @@ app.post('/', async (req, res) => {
     const raw = response.choices[0]?.message?.content ?? "";
     console.log(`[ai-vlm] Raw response: ${raw.slice(0, 200)}...`);
 
-    const result = parseAnalysisResponse(raw); // ensure parseAnalysisResponse is defined
+    const result = parseAnalysisResponse(raw);
     console.log(`[ai-vlm] Parsed: ${result.ingredients.length} ingredients, ${result.macros.calories} cal`);
 
-    res.json(result);
+    res.writeHead(200, headers);
+    res.end(JSON.stringify(result));
   } catch (e) {
     console.error("[ai-vlm] Error:", e);
-    res.status(500).json({
-      error: e instanceof Error ? e.message : "Unknown error",
-    });
+    res.writeHead(500, headers);
+    res.end(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }));
   }
-});
-
-// Fallback for other methods
-app.all('*', (req, res) => {
-  res.set(corsHeaders);
-  res.status(405).json({ error: "Method not allowed" });
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 DS-Cali AI VLM service running on http://localhost:${PORT}`);
-  console.log(`   POST { "image": "<data-url>" } to analyze a meal.`);
-  console.log(`   In the APK, set Remote service URL to: /api/analyze?XTransformPort=${PORT}`);
-});
+}
