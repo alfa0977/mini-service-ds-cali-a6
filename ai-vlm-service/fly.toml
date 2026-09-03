@@ -1,0 +1,23 @@
+app = "ds-cali"   # CHANGE THIS!
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # No environment variables needed, but you can add them here
+
+[[services]]
+  internal_port = 3031        # Matches the code's PORT
+  protocol = "tcp"
+
+  [services.concurrency]
+    hard_limit = 25
+    soft_limit = 20
+
+  [[services.ports]]
+    port = 80                 # HTTP
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443                # HTTPS
+    handlers = ["tls", "http"]
