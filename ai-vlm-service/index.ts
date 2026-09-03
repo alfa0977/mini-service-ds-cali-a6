@@ -111,7 +111,14 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
+// Health check endpoints
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'DS-Cali AI VLM service is running' });
+});
 
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy' });
+});
 app.post('/', async (req, res) => {
   try {
     const { image } = req.body;
