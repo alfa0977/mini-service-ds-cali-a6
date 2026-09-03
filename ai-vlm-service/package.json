@@ -1,17 +1,18 @@
 {
   "name": "ds-cali-ai-vlm-service",
   "version": "1.0.0",
-  "description": "Remote AI VLM service for DS-Cali — wraps z-ai-web-dev-sdk for APK meal analysis",
+  "type": "module",
   "scripts": {
-    "dev": "bun --hot index.ts",
-    "start": "bun index.ts"
+    "dev": "node --loader ts-node/esm index.ts",
+    "start": "node index.ts"
   },
   "dependencies": {
-    "express": "^5.2.1",
+    "express": "^4.18.2",
     "z-ai-web-dev-sdk": "^0.0.18"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@vercel/node": "^12.0.0"
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.0.0"
   }
 }
